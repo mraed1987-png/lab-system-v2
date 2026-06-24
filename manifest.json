@@ -1,0 +1,23 @@
+{
+  "name": "نظام السجل المخبري اليومي",
+  "short_name": "السجل المخبري",
+  "description": "نظام حوسبة وأرشفة السجل المخبري اليومي للمختبرات المدرسية",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#e8f4f8",
+  "theme_color": "#1a5276",
+  "dir": "rtl",
+  "lang": "ar",
+  "icons": [
+    {
+      "src": "pwa/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "pwa/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

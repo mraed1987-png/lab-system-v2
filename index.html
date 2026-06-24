@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a5276">
+    <title>نظام حوسبة وأرشفة السجل المخبري اليومي</title>
+    <link rel="manifest" href="manifest.json">
+
+    <!-- المكتبات الخارجية -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script defer src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+    <!-- التصميم -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- =========================================================
+     صفحة تسجيل الدخول
+     ========================================================= -->
+<div id="loginPage">
+    <div class="login-card">
+        <div class="login-logo">🧪</div>
+        <div class="login-title">نظام السجل المخبري اليومي</div>
+        <div class="login-subtitle">وزارة التربية والتعليم — المملكة الأردنية الهاشمية</div>
+
+        <!-- اختيار الدور -->
+        <div class="role-selector">
+            <button class="role-btn" data-role="admin" onclick="selectLoginRole('admin')">
+                <span class="role-icon">🏫</span>مدير المدرسة
+            </button>
+            <button class="role-btn active" data-role="tech" onclick="selectLoginRole('tech')">
+                <span class="role-icon">🔬</span>فني المختبر
+            </button>
+            <button class="role-btn" data-role="teacher" onclick="selectLoginRole('teacher')">
+                <span class="role-icon">👨‍🏫</span>معلم / معلمة
+            </button>
+        </div>
+
+        <!-- نموذج الدخول -->
+        <div class="login-form">
+            <div class="form-group" id="loginUserGroup" style="display:none">
+                <label>اختر اسم المستخدم</label>
+                <select id="loginUserSelect" onchange="document.getElementById('loginPassword').focus()">
+                    <option value="">-- اختر اسمك --</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label id="loginPasswordLabel">كلمة المرور</label>
+                <input type="password" id="loginPassword" placeholder="أدخل كلمة المرور..." onkeydown="if(event.key==='Enter')doLogin()">
+            </div>
+            <button class="btn-login" onclick="doLogin()">🔐 تسجيل الدخول</button>
+            <div class="login-error" id="loginError"></div>
+        </div>
+
+        <div class="login-hint">
+            كلمات المرور الافتراضية: مدير = admin123 | مستخدم فردي = 1234
+        </div>
+    </div>
+</div>
+
+<!-- =========================================================
+     صفحة التطبيق الرئيسية
+     ========================================================= -->
+<div id="appPage">
+
+    <!-- شاشة التحميل -->
+    <div id="loadingOverlay" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(255,255,255,.85); z-index:9999; justify-content:center; align-items:center; flex-direction:column">
+        <div style="font-size:40px; margin-bottom:12px">⏳</div>
+        <div style="font-size:16px; color:#2c3e50">جاري التحميل من السحابة...</div>
+    </div>
+
+    <!-- شريط المستخدم العلوي -->
+    <div class="top-bar no-print">
+        <div class="top-bar-title">🧪 نظام حوسبة وأرشفة السجل المخبري اليومي المتكامل
+            <span id="supabaseStatus" style="font-size:11px; margin-right:10px; font-weight:400" title="حالة الاتصال بقاعدة البيانات"></span>
+        </div>
+        <div class="top-bar-user">
+            <span id="topBarUserName"></span>
+            <span class="role-badge" id="topBarRoleBadge"></span>
+            <button class="btn-logout" onclick="doLogout()">🚪 خروج</button>
+        </div>
+    </div>
+
+    <!-- شريط تنبيه الطلبات المعلقة -->
+    <div id="pendingAlert" class="pending-alert no-print" onclick="switchTab(event, 'requestsTab')" title="اضغط لعرض الطلبات" style="display:none">
+        <span class="pending-alert-icon">🔔</span>
+        <span id="pendingAlertText"></span>
+    </div>
+
+    <!-- الحاوية الرئيسية -->
+    <div class="container no-print">
+
+        <!-- شريط التبويبات المجمعة -->
+        <div class="tabs-container">
+            <div class="tab-group">
+                <button class="tab-group-btn" data-group="group1">
+                    📋 السجل والتسجيل <span class="group-arrow">▼</span>
+                </button>
+                <div class="tab-subtabs" id="group1">
+                    <button class="tab-btn" data-tab="formTab" onclick="switchTab(event, 'formTab')">📋 تعبئة حصة جديدة</button>
+                    <button class="tab-btn" data-tab="archiveTab" onclick="switchTab(event, 'archiveTab')">📊 سجل العمل التراكمي (<span id="tabCount">0</span>)</button>
+                </div>
+            </div>
+            <div class="tab-group">
+                <button class="tab-group-btn" data-group="group2">
+                    📅 التخطيط والطلبات <span class="group-arrow">▼</span>
+                </button>
+                <div class="tab-subtabs" id="group2">
+                    <button class="tab-btn" data-tab="requestsTab" onclick="switchTab(event, 'requestsTab')">📝 نموذج طلبات المعلمين (<span id="requestsCount">0</span>)</button>
+                    <button class="tab-btn" data-tab="weeklyPlanTab" onclick="switchTab(event, 'weeklyPlanTab')">📅 خطة العمل الأسبوعي</button>
+                </div>
+            </div>
+            <div class="tab-group">
+                <button class="tab-group-btn" data-group="group3">
+                    📊 التقارير <span class="group-arrow">▼</span>
+                </button>
+                <div class="tab-subtabs" id="group3">
+                    <button class="tab-btn" data-tab="monthlyReportTab" onclick="switchTab(event, 'monthlyReportTab')">📈 التقرير الشهري</button>
+                    <button class="tab-btn" data-tab="statsTab" onclick="switchTab(event, 'statsTab')">📊 إحصائية المختبرات</button>
+                </div>
+            </div>
+            <div class="tab-group">
+                <button class="tab-group-btn" data-group="group4">
+                    📦 المخزون والإعدادات <span class="group-arrow">▼</span>
+                </button>
+                <div class="tab-subtabs" id="group4">
+                    <button class="tab-btn" data-tab="suppliesTab" onclick="switchTab(event, 'suppliesTab')">📦 سجل اللوازم</button>
+                    <button class="tab-btn" data-tab="settingsTab" onclick="switchTab(event, 'settingsTab')">⚙️ إعدادات النظام</button>
+                    <button class="tab-btn" data-tab="auditTab" onclick="switchTab(event, 'auditTab')">📋 سجل التدقيق</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             التبويب الأول: تعبئة حصة جديدة
+             ===================================================== -->
+        <div id="formTab" class="tab-content">
+            <div class="section-title">📋 بيانات الحصة المخبرية الحالية</div>
+            <div class="row">
+                <div class="col form-group">
+                    <label>التاريخ <span>*</span></label>
+                    <input type="date" id="dateInput" onchange="onDateChanged()">
+                </div>
+                <div class="col-sm form-group">
+                    <label>رقم التجربة <span>*</span></label>
+                    <input type="number" id="expNum" placeholder="مثال: 1" min="1">
+                </div>
+                <div class="col-sm form-group">
+                    <label>الحصة <span>*</span></label>
+                    <select id="lessonNum">
+                        <option value="">-- اختر الحصة --</option>
+                        <option>الحصة الأولى</option><option>الحصة الثانية</option>
+                        <option>الحصة الثالثة</option><option>الحصة الرابعة</option>
+                        <option>الحصة الخامسة</option><option>الحصة السادسة</option>
+                        <option>الحصة السابعة</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col form-group">
+                    <label>الصف الدراسي <span>*</span></label>
+                    <select id="classSelect" onchange="updateFilteredExperiments()">
+                        <option value="">-- اختر الصف --</option>
+                    </select>
+                </div>
+                <div class="col form-group">
+                    <label>الشعبة <span>*</span></label>
+                    <select id="divisionSelect">
+                        <option value="">-- اختر الشعبة --</option>
+                    </select>
+                </div>
+                <div class="col form-group">
+                    <label>المبحث الرئيسي <span>*</span></label>
+                    <select id="subjectSelect" onchange="updateFilteredExperiments()">
+                        <option value="">-- اختر المبحث --</option>
+                    </select>
+                </div>
+                <div class="col form-group">
+                    <label>معلم / معلمة المبحث <span>*</span></label>
+                    <select id="teacherSelect">
+                        <option value="">-- اختر المعلم --</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>اسم التجربة / النشاط المخبري <span>*</span>
+                    <small id="filterStatusLabel" style="color:#e67e22; font-weight:bold"></small>
+                </label>
+                <select id="expSelect" onchange="autoFillTools()">
+                    <option value="">-- اختر الصف والمبحث والتاريخ أولاً --</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>📦 الأدوات والأجهزة والمواد المستخدمة
+                    <small style="font-weight:400; color:#7f8c8d">(تعبئة تلقائية — اضغط للتعديل)</small>
+                </label>
+                <div id="toolsDisplay" class="tools-display empty">ستظهر الأدوات تلقائياً عند اختيار التجربة...</div>
+                <textarea id="toolsUsed" style="display:none"></textarea>
+            </div>
+
+            <div class="row">
+                <div class="col form-group">
+                    <label>الأدوات والمواد التالفة والمستهلكة</label>
+                    <textarea id="damagedTools" placeholder="اكتب المواد المستهلكة أو التوالف، أو (لا يوجد)"></textarea>
+                </div>
+                <div class="col form-group">
+                    <label>نتيجة التجربة</label>
+                    <textarea id="expResult" placeholder="مثال: تم تحقيق نتاجات العمل المخبري بنجاح..."></textarea>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>ملاحظات إضافية</label>
+                <input type="text" id="notes" placeholder="أي ملاحظات أخرى">
+            </div>
+
+            <div class="actions-row">
+                <button class="btn btn-save" id="btnSaveRecord" onclick="saveToArchive()">
+                    📥 حفظ الحصة في السجل التراكمي
+                </button>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             التبويب الثاني: الأرشيف
+             ===================================================== -->
+        <div id="archiveTab" class="tab-content">
+            <div class="section-title">📊 كشف الأرشيف المحفوظ</div>
+
+            <div class="access-denied-banner" id="adminViewBanner" style="display:none">
+                👁️ أنت في وضع العرض فقط — الحذف والتعديل غير متاحَين لدور مدير المدرسة
+            </div>
+
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px">
+                <button class="btn btn-print-all" style="flex:1; min-width:160px" onclick="printFullArchive()">
+                    🖨️ طباعة السجل المتكامل للجنة الإشراف
+                </button>
+                <button class="btn btn-print-all" style="flex:1; min-width:160px; background:#27ae60" onclick="exportArchiveToExcel()">
+                    📥 تصدير Excel
+                </button>
+            </div>
+
+            <!-- فلتر متقدم -->
+            <div class="archive-filter-bar">
+                <div class="archive-filter-row">
+                    <div class="form-group" style="margin:0; min-width:140px">
+                        <label style="font-size:11px">المعلم</label>
+                        <select id="filterArchiveTeacher" onchange="archivePage=1; renderArchive()">
+                            <option value="">الكل</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin:0; min-width:120px">
+                        <label style="font-size:11px">المبحث</label>
+                        <select id="filterArchiveSubject" onchange="archivePage=1; renderArchive()">
+                            <option value="">الكل</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin:0; min-width:130px">
+                        <label style="font-size:11px">من تاريخ</label>
+                        <input type="date" id="filterArchiveDateFrom" onchange="archivePage=1; renderArchive()">
+                    </div>
+                    <div class="form-group" style="margin:0; min-width:130px">
+                        <label style="font-size:11px">إلى تاريخ</label>
+                        <input type="date" id="filterArchiveDateTo" onchange="archivePage=1; renderArchive()">
+                    </div>
+                    <div class="form-group" style="margin:0; display:flex; align-items:flex-end">
+                        <button class="btn btn-sm" onclick="clearArchiveFilters()" style="padding:6px 14px; font-size:12px; background:#95a5a6">🔄 مسح</button>
+                    </div>
+                </div>
+                <div class="archive-filter-status" id="archiveFilterStatus"></div>
+            </div>
+
+            <div style="margin-bottom:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+                <button class="btn btn-sm" id="deleteSelectedBtn" style="display:none; background:#e74c3c; color:#fff" onclick="deleteSelectedArchive()">🗑️ حذف المحدد (<span id="selectedCount">0</span>)</button>
+            </div>
+
+            <div class="archive-pagination" id="archivePagination" style="display:flex; gap:5px; flex-wrap:wrap; align-items:center; margin-bottom:8px; font-size:13px">
+                <button class="btn btn-sm" onclick="changeArchivePage(-1)" id="archivePrevBtn" style="padding:4px 10px">‹ السابق</button>
+                <span id="archivePageInfo" style="color:#555">الصفحة 1</span>
+                <button class="btn btn-sm" onclick="changeArchivePage(1)" id="archiveNextBtn" style="padding:4px 10px">التالي ›</button>
+                <span style="color:#95a5a6; font-size:12px" id="archiveTotalInfo"></span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="dashboard-table table-card-mobile" id="archiveMainTable">
+                    <thead>
+                        <tr>
+                            <th style="width:32px"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" title="تحديد الكل"></th>
+                            <th>التاريخ</th><th>الحصة</th><th>المعلم</th><th>الصف والشعبة</th>
+                            <th>المبحث</th><th>التجربة</th><th>الأدوات المستخدمة</th><th>حذف</th>
+                        </tr>
+                    </thead>
+                    <tbody id="archiveTableBody"></tbody>
+                </table>
+            </div>
+            <div style="text-align:left; margin-top:20px">
+                <button class="btn btn-clear" onclick="clearFullArchive()">🗑️ تفريغ السجل اليومي كاملاً</button>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             تبويب نموذج طلبات المعلمين
+             ===================================================== -->
+        <div id="requestsTab" class="tab-content">
+            <div class="section-title">📝 نموذج طلبات المعلمين — إدخال الطلبات المسبقة</div>
+
+            <!-- نموذج الإدخال -->
+            <div class="settings-card" style="background:#f0f7ee; border:1px solid #a9dfbf">
+                <div class="section-title" style="color:#27ae60; border-color:#a9dfbf">➕ إدخال طلب جديد</div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>التاريخ المطلوب <span>*</span></label>
+                        <input type="date" id="reqDate" onchange="filterReqExperiments()">
+                    </div>
+                    <div class="col-sm form-group">
+                        <label>الحصة المطلوبة <span>*</span></label>
+                        <select id="reqLesson">
+                            <option value="">-- اختر --</option>
+                            <option>الحصة الأولى</option><option>الحصة الثانية</option>
+                            <option>الحصة الثالثة</option><option>الحصة الرابعة</option>
+                            <option>الحصة الخامسة</option><option>الحصة السادسة</option>
+                            <option>الحصة السابعة</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>اسم المعلم <span>*</span></label>
+                        <select id="reqTeacher">
+                            <option value="">-- اختر المعلم --</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>الصف الدراسي <span>*</span></label>
+                        <select id="reqClass" onchange="filterReqExperiments()">
+                            <option value="">-- اختر الصف --</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>الشعبة <span>*</span></label>
+                        <select id="reqDivision">
+                            <option value="">-- اختر الشعبة --</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>المبحث <span>*</span></label>
+                        <select id="reqSubject" onchange="filterReqExperiments()">
+                            <option value="">-- اختر المبحث --</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>نوع المختبر</label>
+                        <select id="reqLabType"></select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>اسم التجربة <span>*</span>
+                            <small id="reqFilterStatus" style="color:#e67e22; font-weight:bold"></small>
+                        </label>
+                        <select id="reqExpName" onchange="autoFillReqTools()">
+                            <option value="">-- اختر الصف والمبحث والتاريخ أولاً --</option>
+                        </select>
+                    </div>
+                    <div class="col-sm form-group">
+                        <label>عدد المجموعات</label>
+                        <input type="number" id="reqGroups" placeholder="مثال: 4" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>الأدوات والمواد المطلوبة</label>
+                    <textarea id="reqTools" placeholder="اذكر الأدوات والمواد اللازمة للتجربة..."></textarea>
+                </div>
+                <button class="btn btn-save" style="width:auto; padding:11px 35px" onclick="saveRequest()">
+                    📥 حفظ الطلب
+                </button>
+            </div>
+
+            <!-- جدول الطلبات المحفوظة -->
+            <div class="section-title" style="margin-top:20px">
+                📋 الطلبات المحفوظة
+                <span style="font-size:12px; font-weight:400; color:#7f8c8d; margin-right:10px">
+                    🟡 = بانتظار التنفيذ &nbsp;|&nbsp; ✅ = تم التحويل للأرشيف
+                </span>
+            </div>
+            <div class="table-responsive">
+                <table class="dashboard-table table-card-mobile">
+                    <thead>
+                        <tr>
+                            <th>التاريخ</th>
+                            <th>الحصة</th>
+                            <th>المعلم</th>
+                            <th>الصف والشعبة</th>
+                            <th>المبحث</th>
+                            <th>التجربة</th>
+                            <th>المجموعات</th>
+                            <th>الحالة</th>
+                            <th>إجراء</th>
+                        </tr>
+                    </thead>
+                    <tbody id="requestsTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             التبويب: خطة العمل الأسبوعي
+             ===================================================== -->
+        <div id="weeklyPlanTab" class="tab-content">
+            <div class="section-title">📅 خطة العمل الأسبوعي — مُولَّدة تلقائياً من السجل</div>
+
+            <div class="settings-card">
+                <div class="row" style="align-items:flex-end; gap:16px">
+                    <div class="col form-group" style="max-width:200px">
+                        <label>من تاريخ</label>
+                        <input type="date" id="weeklyFromDate" onchange="generateWeeklyPlan()">
+                    </div>
+                    <div class="col form-group" style="max-width:200px">
+                        <label>إلى تاريخ</label>
+                        <input type="date" id="weeklyToDate" onchange="generateWeeklyPlan()">
+                    </div>
+                    <div class="col form-group" style="padding-bottom:2px">
+                        <button class="btn btn-save" style="width:auto; padding:10px 20px" onclick="setCurrentWeek()">
+                            📆 الأسبوع الحالي
+                        </button>
+                    </div>
+                    <div class="col form-group" style="padding-bottom:2px">
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px">
+                            <button class="btn btn-print-all" style="width:auto; padding:10px 20px; margin:0" onclick="printWeeklyPlan()">
+                                🖨️ طباعة الخطة الأسبوعية
+                            </button>
+                            <button class="btn btn-print-all" style="width:auto; padding:10px 20px; margin:0; background:#27ae60" onclick="exportWeeklyPlanToExcel()">
+                                📥 تصدير Excel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- معاينة الجدول الأسبوعي -->
+            <div id="weeklyPlanPreview">
+                <div style="text-align:center; color:#95a5a6; font-style:italic; padding:40px">
+                    اختر نطاق التاريخ لعرض خطة الأسبوع...
+                </div>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             التبويب الرابع: التقرير الشهري
+             ===================================================== -->
+        <div id="monthlyReportTab" class="tab-content">
+            <div class="section-title">📊 التقرير الشهري التلقائي للنشاط المخبري</div>
+            <div class="settings-card">
+                <div class="row" style="align-items:center">
+                    <div class="col form-group">
+                        <label>اختر شهر التقرير:</label>
+                        <select id="monthlyReportFilter" onchange="generateMonthlyReportData()">
+                            <option value="01">كانون الثاني (01)</option>
+                            <option value="02">شباط (02)</option>
+                            <option value="03">آذار (03)</option>
+                            <option value="04">نيسان (04)</option>
+                            <option value="05">أيار (05)</option>
+                            <option value="06">حزيران (06)</option>
+                            <option value="07">تموز (07)</option>
+                            <option value="08">آب (08)</option>
+                            <option value="09">أيلول (09)</option>
+                            <option value="10">تشرين الأول (10)</option>
+                            <option value="11">تشرين الثاني (11)</option>
+                            <option value="12">كانون الأول (12)</option>
+                        </select>
+                    </div>
+                    <div class="col form-group" style="padding-top:20px">
+                        <button class="btn btn-print-all" style="margin:0" onclick="printMonthlyReport()">
+                            🖨️ طباعة نموذج التقرير الشهري الرسمي
+                        </button>
+                        <button class="btn btn-print-all" style="margin:0; margin-top:6px; background:#27ae60; display:block" onclick="exportMonthlyReportToExcel()">
+                            📥 تصدير Excel
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-card" style="background:white; border:1px solid #cbd5e1">
+                <div style="text-align:center; font-weight:bold; font-size:16px; margin-bottom:10px">
+                    📋 معاينة التقرير الشهري المجمع
+                </div>
+                <table class="monthly-report-table">
+                    <thead>
+                        <tr>
+                            <th style="width:5%">م</th>
+                            <th style="width:18%">اسم المعلم</th>
+                            <th style="width:15%">المبحث</th>
+                            <th style="width:17%">الصف والشُّعب المشمولة</th>
+                            <th style="width:13%">عدد التجارب المطلوب<br>(حسب الخطة)</th>
+                            <th style="width:12%">عدد التجارب الفعلي<br>(مجموع الشعب)</th>
+                            <th style="width:10%">النسبة المئوية (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monthlyReportTableBody"></tbody>
+                </table>
+
+                <div style="margin-top:15px; font-weight:bold; font-size:14px" id="monthlyTotalCountLabel">
+                    مجموع التجارب الكلي التي أجريت خلال الشهر: 0
+                </div>
+
+                <div class="monthly-summary-box">
+                    <div id="lblSumChem">مجموع تجارب الكيمياء = 0</div>
+                    <div id="lblSumPhys">مجموع تجارب الفيزياء = 0</div>
+                    <div id="lblSumBio">مجموع تجارب الأحياء = 0</div>
+                    <div id="lblSumEarth">مجموع تجارب علوم الأرض = 0</div>
+                    <div id="lblSumGen">مجموع تجارب العلوم العامة = 0</div>
+                </div>
+
+                <div style="margin-top:20px; font-weight:bold; font-size:13px; border-top:1px solid #eee; padding-top:15px">
+                    ملاحظات : .............................................................................................................................................
+                </div>
+            </div>
+        </div>
+
+        <!-- =====================================================
+             تبويب إحصائية المختبرات — QF70-2-19Rev.a
+             ===================================================== -->
+        <div id="statsTab" class="tab-content">
+            <div class="section-title">📊 إحصائية المختبرات المدرسية — نموذج (أ) QF70-2-19Rev.a</div>
+
+            <div class="settings-card" style="background:#f0f7ee; border:1px solid #a9dfbf">
+                <div class="section-title" style="color:#27ae60; border-color:#a9dfbf">📝 القسم الأول: بيانات المدرسة</div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>العام الدراسي</label>
+                        <input type="text" id="statsYear" placeholder="مثال: 2025 / 2026" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>الفترة</label>
+                        <select id="statsPeriod" onchange="saveStatsMeta()">
+                            <option value="فترة واحدة">فترة واحدة</option>
+                            <option value="فترة أولى">فترة أولى</option>
+                            <option value="فترة ثانية">فترة ثانية</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>المرحلة</label>
+                        <select id="statsStage" onchange="saveStatsMeta()">
+                            <option value="أساسي">أساسي</option>
+                            <option value="ثانوي">ثانوي</option>
+                            <option value="أساسي وثانوي">أساسي وثانوي</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>الجنس</label>
+                        <select id="statsGender" onchange="saveStatsMeta()">
+                            <option value="ذكور">ذكور</option>
+                            <option value="إناث">إناث</option>
+                            <option value="مختلط">مختلط</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>عدد الطلبة الكلي</label>
+                        <input type="number" id="statsTotalStudents" placeholder="الكلي" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>عدد طلبة الثانوي</label>
+                        <input type="number" id="statsSecStudents" placeholder="الثانوي" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>عدد طلبة الأساسي</label>
+                        <input type="number" id="statsBasicStudents" placeholder="الأساسي" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>عدد الشعب الكلي</label>
+                        <input type="number" id="statsTotalClasses" placeholder="الكلي" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>شعب الثانوي</label>
+                        <input type="number" id="statsSecClasses" placeholder="الثانوي" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>شعب الأساسي</label>
+                        <input type="number" id="statsBasicClasses" placeholder="الأساسي" oninput="saveStatsMeta()">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>من الصف</label>
+                        <input type="text" id="statsFromGrade" placeholder="مثال: الخامس" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>إلى الصف</label>
+                        <input type="text" id="statsToGrade" placeholder="مثال: الثاني الثانوي" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>نوع البناء</label>
+                        <select id="statsBuildType" onchange="saveStatsMeta()">
+                            <option value="مشاريع">مشاريع</option>
+                            <option value="موازنة">موازنة</option>
+                            <option value="مستأجر">مستأجر</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>عدد حصص العلوم</label>
+                        <input type="number" id="statsSciPeriods" placeholder="عدد الحصص" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>عدد معلمي العلوم</label>
+                        <input type="number" id="statsSciTeachers" placeholder="عدد المعلمين" oninput="saveStatsMeta()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- قيم المختبر -->
+            <div class="settings-card" style="background:#eaf4fb; border:1px solid #aed6f1">
+                <div class="section-title" style="color:#1a5276; border-color:#aed6f1">🔬 القسم الثاني: بيانات قيم / قيمة المختبر</div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>المؤهل العلمي</label>
+                        <input type="text" id="statsQual" placeholder="مثال: بكالوريوس علوم" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>التخصص</label>
+                        <input type="text" id="statsSpeciality" placeholder="مثال: كيمياء" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>سنوات الخبرة في المختبرات</label>
+                        <input type="number" id="statsExpYears" placeholder="عدد السنوات" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>حضور دورة المختبرات</label>
+                        <select id="statsLabCourse" onchange="saveStatsMeta()">
+                            <option value="نعم">نعم</option>
+                            <option value="لا">لا</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>نوع العمل في المدرسة</label>
+                        <select id="statsWorkType" onchange="saveStatsMeta()">
+                            <option value="قيم مختبر متفرغ">قيم مختبر متفرغ</option>
+                            <option value="معلم مسؤول">معلم مسؤول</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- قاعات المختبرات -->
+            <div class="settings-card" style="background:#fef9c3; border:1px solid #fef08a">
+                <div class="section-title" style="color:#854d0e; border-color:#fef08a">🏫 القسم الثالث: قاعات المختبرات وتجهيزاتها</div>
+                <div class="form-group">
+                    <label>نوع قاعة المختبر (اختر كل ما ينطبق)</label>
+                    <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:6px">
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypeShared"  onchange="saveStatsMeta()"> غرفة مشتركة
+                        </label>
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypeClass"   onchange="saveStatsMeta()"> غرفة صفية
+                        </label>
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypeGen"     onchange="saveStatsMeta()"> مختبر علوم عامة
+                        </label>
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypePhys"    onchange="saveStatsMeta()"> مختبر فيزياء
+                        </label>
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypeChem"    onchange="saveStatsMeta()"> مختبر كيمياء
+                        </label>
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypeBio"     onchange="saveStatsMeta()"> مختبر أحياء
+                        </label>
+                        <label style="font-weight:400; display:flex; align-items:center; gap:6px; color:#2c3e50">
+                            <input type="checkbox" id="labTypeNone"    onchange="saveStatsMeta()"> غير متوافر
+                        </label>
+                    </div>
+                </div>
+                <div class="section-title" style="font-size:13px; margin-top:10px">الأثاث المخبري</div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>طاولات العمل — المتوافر</label>
+                        <input type="number" id="statsTblAvail" placeholder="العدد" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>طاولات العمل — النقص</label>
+                        <input type="number" id="statsTblMiss" placeholder="العدد" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>كراسي ستول — المتوافر</label>
+                        <input type="number" id="statsChairAvail" placeholder="العدد" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>كراسي ستول — النقص</label>
+                        <input type="number" id="statsChairMiss" placeholder="العدد" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>خزائن مخبرية — المتوافر</label>
+                        <input type="number" id="statsCabAvail" placeholder="العدد" oninput="saveStatsMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>خزائن مخبرية — النقص</label>
+                        <input type="number" id="statsCabMiss" placeholder="العدد" oninput="saveStatsMeta()">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>الأجهزة والأدوات المخبرية</label>
+                    <select id="statsEquip" onchange="saveStatsMeta()">
+                        <option value="كافية">كافية</option>
+                        <option value="مناسبة">مناسبة</option>
+                        <option value="غير كافية">غير كافية</option>
+                        <option value="ضئيلة جداً">ضئيلة جداً</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- معاينة النموذج -->
+            <div class="settings-card" style="background:white; border:1px solid #cbd5e1">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:6px">
+                    <div style="font-weight:bold; font-size:15px">📋 معاينة النموذج الرسمي الكامل</div>
+                    <div style="display:flex; gap:6px">
+                        <button class="btn btn-print-all" style="width:auto; margin:0" onclick="printStatsForm()">
+                            🖨️ طباعة نموذج الإحصائية الرسمي
+                        </button>
+                        <button class="btn btn-print-all" style="width:auto; margin:0; background:#27ae60" onclick="exportStatsToExcel()">
+                            📥 تصدير Excel
+                        </button>
+                    </div>
+                </div>
+                <div id="statsPreview"></div>
+            </div>
+        </div><!-- /statsTab -->
+
+        <!-- =====================================================
+             تبويب سجل اللوازم
+             ===================================================== -->
+        <div id="suppliesTab" class="tab-content">
+
+            <!-- واجهة قائمة المواد -->
+            <div id="suppliesListView">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                    <div class="section-title" style="margin:0">📦 سجل اللوازم المخبرية</div>
+                    <button class="btn btn-save" style="width:auto; padding:10px 24px" onclick="showAddMaterialForm()">
+                        ➕ إضافة مادة جديدة
+                    </button>
+                </div>
+
+                <!-- نموذج إضافة/تعديل مادة -->
+                <div id="materialFormCard" class="settings-card" style="display:none; background:#f0f7ee; border:1px solid #a9dfbf">
+                    <div class="section-title" style="color:#27ae60" id="materialFormTitle">➕ إضافة مادة جديدة</div>
+                    <div class="row">
+                        <div class="col form-group">
+                            <label>الرقم الرمزي <span>*</span></label>
+                            <input type="text" id="matCode" placeholder="مثال: CH-001">
+                        </div>
+                        <div class="col form-group">
+                            <label>اسم المادة ومواصفاتها <span>*</span></label>
+                            <input type="text" id="matName" placeholder="مثال: حمض كلور الماء HCl">
+                        </div>
+                        <div class="col form-group">
+                            <label>الوحدة <span>*</span></label>
+                            <input type="text" id="matUnit" placeholder="مثال: لتر، كغ، قطعة">
+                        </div>
+                        <div class="col form-group">
+                            <label>السعر</label>
+                            <input type="number" id="matPrice" placeholder="0.000" step="0.001" min="0">
+                        </div>
+                        <div class="col form-group">
+                            <label>الحد الأعلى</label>
+                            <input type="number" id="matMaxLimit" placeholder="الحد الأعلى" min="0">
+                        </div>
+                        <div class="col form-group">
+                            <label>الحد الأدنى</label>
+                            <input type="number" id="matMinLimit" placeholder="الحد الأدنى" min="0">
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:10px">
+                        <button class="btn btn-save" style="width:auto; padding:10px 30px" onclick="saveMaterial()">💾 حفظ المادة</button>
+                        <button class="btn btn-clear" style="width:auto; padding:10px 20px" onclick="hideMaterialForm()">إلغاء</button>
+                    </div>
+                </div>
+
+                <!-- جدول المواد -->
+                <div class="table-responsive">
+                    <table class="dashboard-table">
+                        <thead>
+                            <tr>
+                                <th>الرقم الرمزي</th>
+                                <th>اسم المادة ومواصفاتها</th>
+                                <th>الوحدة</th>
+                                <th>السعر</th>
+                                <th>الرصيد الحالي</th>
+                                <th>الحد الأعلى</th>
+                                <th>الحد الأدنى</th>
+                                <th>الحالة</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="materialsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- واجهة صفحة المادة المستقلة -->
+            <div id="materialDetailView" style="display:none">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px">
+                    <button class="btn btn-add" onclick="backToSuppliesList()" style="padding:8px 18px">
+                        ← العودة لقائمة المواد
+                    </button>
+                    <button class="btn btn-print-all" style="width:auto; margin:0" onclick="printMaterialPage()">
+                        🖨️ طباعة صفحة المادة
+                    </button>
+                    <button class="btn btn-print-all" style="width:auto; margin:0; background:#27ae60" onclick="exportMaterialsToExcel()">
+                        📥 تصدير Excel
+                    </button>
+                </div>
+
+                <!-- بيانات المادة -->
+                <div class="settings-card" style="background:#eaf4fb; border:1px solid #aed6f1">
+                    <div class="row" style="align-items:center">
+                        <div class="col">
+                            <div style="font-size:18px; font-weight:800; color:#1a5276" id="detailMatName"></div>
+                            <div style="font-size:13px; color:#555; margin-top:4px" id="detailMatCode"></div>
+                        </div>
+                        <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:13px; font-weight:bold">
+                            <div>الوحدة: <span id="detailMatUnit" style="color:#1a5276"></span></div>
+                            <div>السعر: <span id="detailMatPrice" style="color:#1a5276"></span></div>
+                            <div>الحد الأعلى: <span id="detailMatMax" style="color:#27ae60"></span></div>
+                            <div>الحد الأدنى: <span id="detailMatMin" style="color:#e74c3c"></span></div>
+                            <div>الرصيد الحالي: <span id="detailMatBalance" style="font-size:18px; color:#1a5276"></span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- نموذج إضافة حركة -->
+                <div class="settings-card" style="background:#fef9c3; border:1px solid #fef08a">
+                    <div class="section-title" style="color:#854d0e">➕ تسجيل حركة جديدة</div>
+                    <div class="row">
+                        <div class="col form-group">
+                            <label>التاريخ <span>*</span></label>
+                            <input type="date" id="txnDate">
+                        </div>
+                        <div class="col form-group">
+                            <label>نوع الحركة <span>*</span></label>
+                            <select id="txnType" onchange="toggleTxnFields()">
+                                <option value="in">📥 إدخال (استلام)</option>
+                                <option value="out">📤 إخراج (صرف)</option>
+                            </select>
+                        </div>
+                        <div class="col form-group">
+                            <label>الكمية <span>*</span></label>
+                            <input type="number" id="txnQty" placeholder="الكمية" min="0" step="0.01">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col form-group">
+                            <label id="txnPartyLabel">الجهة المسلِمة</label>
+                            <input type="text" id="txnParty" placeholder="مثال: مستودع المديرية">
+                        </div>
+                        <div class="col form-group">
+                            <label>رقم مستند الإدخال/الإخراج</label>
+                            <input type="text" id="txnDoc" placeholder="رقم المستند">
+                        </div>
+                        <div class="col form-group">
+                            <label>ملاحظات</label>
+                            <input type="text" id="txnNotes" placeholder="أي ملاحظات">
+                        </div>
+                    </div>
+                    <button class="btn btn-save" style="width:auto; padding:10px 30px" onclick="saveTransaction()">
+                        💾 تسجيل الحركة
+                    </button>
+                </div>
+
+                <!-- جدول الحركات -->
+                <div class="section-title">📋 سجل حركات المادة</div>
+                <div class="table-responsive">
+                    <table class="dashboard-table">
+                        <thead>
+                            <tr>
+                                <th>التاريخ</th>
+                                <th>رقم المستند</th>
+                                <th>الجهة المسلِمة أو المستلِمة</th>
+                                <th>المستلَم</th>
+                                <th>المصروف</th>
+                                <th>الرصيد</th>
+                                <th>ملاحظات</th>
+                                <th>حذف</th>
+                            </tr>
+                        </thead>
+                        <tbody id="transactionsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div><!-- /suppliesTab -->
+
+        <!-- =====================================================
+             التبويب الرابع: الإعدادات
+             ===================================================== -->
+        <div id="settingsTab" class="tab-content">
+
+            <!-- ============================================== -->
+            <!-- 🏛️ المجموعة الأولى: بيانات المدرسة والقوائم    -->
+            <!-- ============================================== -->
+            <div class="section-title" style="background:#eaf2f8; padding:10px 15px; border-radius:8px; margin-bottom:10px; font-size:16px; color:#1a5276">
+                🏛️ بيانات المدرسة والقوائم
+            </div>
+
+            <!-- بيانات المدرسة -->
+            <div class="settings-card" style="border-right:4px solid #1a5276">
+                <div class="row">
+                    <div class="col form-group">
+                        <label>مديرية التربية والتعليم</label>
+                        <input type="text" id="cfgSchoolDir" placeholder="مثال: مديرية لواء قصبة إربد" oninput="saveSchoolMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>اسم المدرسة</label>
+                        <input type="text" id="cfgSchoolName" placeholder="مثال: مدرسة الملك عبدالله الثاني للتميز" oninput="saveSchoolMeta()">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col form-group">
+                        <label>اسم فني / فنية المختبر</label>
+                        <input type="text" id="cfgLabTech" placeholder="اسم فني المختبر المسؤول" oninput="saveSchoolMeta()">
+                    </div>
+                    <div class="col form-group">
+                        <label>اسم مدير / مديرة المدرسة</label>
+                        <input type="text" id="cfgPrincipal" placeholder="اسم مدير المدرسة" oninput="saveSchoolMeta()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- القوائم -- فني فقط -->
+            <div class="row settings-edit-only" style="margin-top:6px">
+                <div class="col settings-card" style="border-right:4px solid #8e44ad">
+                    <label>👨‍🏫 المعلمون</label>
+                    <div class="row" style="gap:5px; margin-bottom:10px">
+                        <input type="text" id="newTeacherInput" placeholder="اسم المعلم الجديد" style="flex:2">
+                        <button class="btn btn-add" onclick="addSettingItem('teachers','newTeacherInput')" style="flex:1; margin:0">إضافة</button>
+                    </div>
+                    <div class="table-responsive" style="max-height:150px">
+                        <table class="dashboard-table"><tbody id="teachersListTable"></tbody></table>
+                    </div>
+                </div>
+                <div class="col settings-card" style="border-right:4px solid #27ae60">
+                    <label>🏫 الصفوف الدراسية</label>
+                    <div class="row" style="gap:5px; margin-bottom:10px">
+                        <input type="text" id="newClassInput" placeholder="مثال: العاشر" style="flex:2">
+                        <button class="btn btn-add" onclick="addSettingItem('classes','newClassInput')" style="flex:1; margin:0">إضافة</button>
+                    </div>
+                    <div class="table-responsive" style="max-height:150px">
+                        <table class="dashboard-table"><tbody id="classesListTable"></tbody></table>
+                    </div>
+                </div>
+                <div class="col settings-card" style="border-right:4px solid #d4ac0d">
+                    <label>🗂️ الشُّعب الدراسية</label>
+                    <div class="row" style="gap:5px; margin-bottom:10px">
+                        <input type="text" id="newDivInput" placeholder="مثال: أ" style="flex:2">
+                        <button class="btn btn-add" onclick="addSettingItem('divisions','newDivInput')" style="flex:1; margin:0">إضافة</button>
+                    </div>
+                    <div class="table-responsive" style="max-height:150px">
+                        <table class="dashboard-table"><tbody id="divisionsListTable"></tbody></table>
+                    </div>
+                </div>
+                <div class="col settings-card" style="border-right:4px solid #1a5276">
+                    <label>🔬 أنواع المختبرات</label>
+                    <div class="row" style="gap:5px; margin-bottom:10px">
+                        <input type="text" id="newLabTypeInput" placeholder="مثال: علوم الأرض" style="flex:2">
+                        <button class="btn btn-add" onclick="addSettingItem('labtypes','newLabTypeInput')" style="flex:1; margin:0">إضافة</button>
+                    </div>
+                    <div class="table-responsive" style="max-height:150px">
+                        <table class="dashboard-table"><tbody id="labtypesListTable"></tbody></table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- إدارة المستخدمين -- فني فقط -->
+            <div class="settings-card settings-edit-only" style="background:#f3e8ff; border:1px solid #d8b4fe; border-right:4px solid #9333ea; margin-top:6px">
+                <div style="font-weight:700; font-size:14px; margin-bottom:8px; color:#7e22ce">👥 إدارة المستخدمين (معلمين وفنيين)</div>
+                <div class="row" style="gap:5px; margin-bottom:10px">
+                    <input type="text" id="newUserName" placeholder="الاسم الكامل" style="flex:2">
+                    <select id="newUserRole" style="flex:1">
+                        <option value="teacher">🧑‍🏫 معلم</option>
+                        <option value="tech">🔬 فني مختبر</option>
+                        <option value="admin">🏫 مدير</option>
+                    </select>
+                    <input type="text" id="newUserPassword" placeholder="كلمة مرور" style="flex:1" value="1234">
+                    <button class="btn btn-add" onclick="addUser()" style="flex:0.5; margin:0">➕ إضافة</button>
+                </div>
+                <div class="table-responsive" style="max-height:200px">
+                    <table class="dashboard-table">
+                        <thead>
+                            <tr><th>الاسم</th><th>الدور</th><th>كلمة المرور</th><th>تعديل</th><th>حذف</th></tr>
+                        </thead>
+                        <tbody id="usersListTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- كلمات المرور — أصبحت ضمن إدارة المستخدمين -->
+            <div class="settings-card settings-edit-only" style="background:#fef9c3; border:1px solid #fef08a; border-right:4px solid #ca8a04; margin-top:6px">
+                <div style="font-weight:700; font-size:13px; color:#854d0e">🔐 إدارة كلمات المرور</div>
+                <p style="font-size:12px; color:#854d0e; margin:6px 0 0 0">
+                    ✅ كلمات المرور الآن تُدار من خلال <strong>👥 إدارة المستخدمين</strong> أعلاه — يمكنك تعديل كلمة مرور أي مستخدم بالضغط على ✏️.
+                </p>
+            </div>
+
+            <!-- ============================================== -->
+            <!-- 🧪 المجموعة الثانية: مستودع التجارب والأهداف    -->
+            <!-- ============================================== -->
+            <div class="section-title" style="background:#e8f5e9; padding:10px 15px; border-radius:8px; margin-top:18px; margin-bottom:10px; font-size:16px; color:#1b5e20">
+                🧪 مستودع التجارب والأهداف
+            </div>
+
+            <!-- محرك الاستيراد -- فني فقط -->
+            <div class="settings-card settings-edit-only" style="background:#e0f2fe; border:1px solid #bae6fd; border-right:4px solid #0284c7">
+                <div style="font-weight:700; font-size:14px; margin-bottom:8px; color:#0369a1">🚀 محرك الاستيراد السحري</div>
+                <p style="font-size:12px; color:#0369a1; margin-top:0">
+                    [A: اسم التجربة | B: الأدوات | C: المبحث | D: الصف | E: الشهر] — انسخ من الإكسل والصق أدناه:
+                </p>
+                <div class="form-group">
+                    <textarea id="pasteZoneInput" placeholder="قم بعمل اللصق (Ctrl+V) للبيانات المنسوخة من الإكسل هنا..."
+                        style="min-height:100px; background:#fff; font-family:monospace; font-size:12px"></textarea>
+                </div>
+                <button class="btn btn-save" style="background:#0284c7; width:auto" onclick="importDataViaCopyPasteEngine()">
+                    ⚡ معالجة وتثبيت البيانات
+                </button>
+                <div style="margin-top:8px; padding-top:8px; border-top:1px dashed #bae6fd">
+                    <label style="font-size:12px; font-weight:700; color:#0369a1">📂 أو ارفع ملف Excel مباشرة:</label>
+                    <div class="row" style="gap:5px; margin-top:5px">
+                        <input type="file" id="excelFileInput" accept=".xls,.xlsx" style="flex:3; font-size:12px">
+                        <button class="btn btn-save" style="background:#0369a1; flex:1; margin:0" onclick="importViaExcelFile()">📤 رفع واستيراد</button>
+                    </div>
+                </div>
+                <div id="pasteStatusLog" style="font-size:12px; font-weight:bold; margin-top:10px; color:#0369a1"></div>
+            </div>
+
+            <!-- مخزن التجارب -->
+            <div class="settings-card" style="border-right:4px solid #2980b9; margin-top:6px">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
+                    <span style="font-weight:700; font-size:14px; color:#1a5276">🧪 مخزن الأنشطة والتجارب
+                        (<span id="storeTotalCountBadge" style="color:#2980b9; font-weight:bold">0</span> تجربة)
+                    </span>
+                    <button class="btn btn-clear settings-edit-only"
+                        style="padding:6px 12px; font-size:12px; margin:0; background:#c0392b"
+                        onclick="clearFullExperimentsStore()">🗑️ تفريغ المخزن</button>
+                </div>
+                <div class="row" style="gap:8px; margin-bottom:10px; align-items:flex-end">
+                    <div class="col form-group" style="margin:0">
+                        <label style="font-size:11px">🔍 فلتر الشهر</label>
+                        <select id="filterStoreMonth" onchange="renderStoreExperiments()">
+                            <option value="">الكل</option>
+                            <option value="09">أيلول</option><option value="10">تشرين الأول</option>
+                            <option value="11">تشرين الثاني</option><option value="12">كانون الأول</option>
+                            <option value="01">كانون الثاني</option><option value="02">شباط</option>
+                            <option value="03">آذار</option><option value="04">نيسان</option>
+                            <option value="05">أيار</option><option value="06">حزيران</option>
+                        </select>
+                    </div>
+                    <div class="col form-group" style="margin:0">
+                        <label style="font-size:11px">📚 المبحث</label>
+                        <select id="filterStoreSubject" onchange="renderStoreExperiments()">
+                            <option value="">الكل</option>
+                        </select>
+                    </div>
+                    <div class="col form-group" style="margin:0">
+                        <label style="font-size:11px">🏫 الصف</label>
+                        <select id="filterStoreClass" onchange="renderStoreExperiments()">
+                            <option value="">الكل</option>
+                        </select>
+                    </div>
+                    <div class="col form-group" style="margin:0; flex:2">
+                        <label style="font-size:11px">🔎 بحث نصي</label>
+                        <input type="text" id="filterStoreText" placeholder="اسم التجربة..." oninput="renderStoreExperiments()" style="font-size:12px">
+                    </div>
+                    <div style="font-size:13px; font-weight:bold; color:#1a5276; white-space:nowrap; display:flex; align-items:center; gap:8px">
+                        <span>العدد: <span id="storeFilteredCount">0</span></span>
+                        <button class="btn btn-save settings-edit-only"
+                            style="margin:0; padding:4px 10px; font-size:11px; background:#16a34a"
+                            onclick="laserTargetFromStore()">🎯 إضافة كهدف</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:280px">
+                    <table class="dashboard-table">
+                        <thead>
+                            <tr>
+                                <th style="width:10%">الشهر</th><th style="width:15%">الصف</th>
+                                <th style="width:15%">المبحث</th><th style="width:25%">اسم التجربة</th>
+                                <th style="width:30%">الأدوات والمواد</th><th style="width:5%">شطب</th>
+                            </tr>
+                        </thead>
+                        <tbody id="storeExperimentsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- أهداف الخطة -- فني فقط -->
+            <div class="settings-card settings-edit-only" style="background:#fef9c3; border:1px solid #fef08a; border-right:4px solid #ca8a04; margin-top:6px">
+                <div style="font-weight:700; font-size:14px; margin-bottom:10px; color:#854d0e">🎯 ضبط عدد تجارب الخطة الشهرية</div>
+                <div class="row" style="align-items:flex-end">
+                    <div class="col form-group">
+                        <label>1. الشهر</label>
+                        <select id="tgtMonth">
+                            <option value="09">أيلول (09)</option><option value="10">تشرين الأول (10)</option>
+                            <option value="11">تشرين الثاني (11)</option><option value="12">كانون الأول (12)</option>
+                            <option value="01">كانون الثاني (01)</option><option value="02">شباط (02)</option>
+                            <option value="03">آذار (03)</option><option value="04">نيسان (04)</option>
+                            <option value="05">أيار (05)</option><option value="06">حزيران (06)</option>
+                        </select>
+                    </div>
+                    <div class="col form-group">
+                        <label>2. المبحث</label>
+                        <select id="tgtSubject"></select>
+                    </div>
+                    <div class="col form-group">
+                        <label>3. الصف الدراسي</label>
+                        <select id="tgtClass"></select>
+                    </div>
+                    <div class="col form-group">
+                        <label>4. العدد المطلوب</label>
+                        <input type="number" id="tgtCountInput" placeholder="مثال: 4" min="0">
+                    </div>
+                    <div class="col form-group">
+                        <button class="btn btn-save" style="margin:0" onclick="submitCustomPlanTargetItem()">💾 تثبيت</button>
+                    </div>
+                </div>
+                <label style="margin-top:15px; font-size:13px; color:#854d0e">📋 الأهداف المحفوظة:</label>
+                <div class="table-responsive" style="max-height:180px; background:white">
+                    <table class="dashboard-table">
+                        <thead>
+                            <tr><th>الشهر</th><th>المبحث</th><th>الصف</th><th>العدد المستهدف</th><th>تعديل</th><th>شطب</th></tr>
+                        </thead>
+                        <tbody id="savedTargetsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ============================================== -->
+            <!-- ☁️ المجموعة الثالثة: الإعدادات المتقدمة         -->
+            <!-- ============================================== -->
+            <div class="section-title" style="background:#fef9e7; padding:10px 15px; border-radius:8px; margin-top:18px; margin-bottom:10px; font-size:16px; color:#7d6608">
+                ☁️ الإعدادات المتقدمة
+            </div>
+
+            <!-- مزامنة Supabase -->
+            <div class="settings-card" style="background:#e8f4f8; border:1px solid #bae6fd; border-right:4px solid #1a5276">
+                <p style="font-size:13px; color:#1a5276; margin-top:0; font-weight:700">
+                    <span id="supabaseStatusCard">💾 الوضع: تخزين محلي</span>
+                </p>
+                <p style="font-size:12px; color:#555">
+                    عند تفعيل Supabase، تُحفظ البيانات في السحابة وتُشارك بين كل الأجهزة.
+                </p>
+                <div class="row" style="align-items:center; gap:10px">
+                    <div class="col form-group" style="flex:2">
+                        <label>رابط المشروع (URL)</label>
+                        <input type="text" id="cfgSupabaseUrl" placeholder="https://xxx.supabase.co" style="direction:ltr; text-align:left; font-size:12px">
+                    </div>
+                    <div class="col form-group" style="flex:3">
+                        <label>المفتاح العام (anon key)</label>
+                        <input type="text" id="cfgSupabaseKey" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="direction:ltr; text-align:left; font-size:11px">
+                    </div>
+                </div>
+                <div class="row" style="gap:10px; margin-top:10px">
+                    <button class="btn btn-save" style="width:auto; background:#1a5276" onclick="saveSupabaseConfig()">
+                        💾 حفظ الإعدادات والاتصال
+                    </button>
+                    <button class="btn btn-save" style="width:auto; background:#27ae60" onclick="migrateLocalStorageToSupabase()">
+                        ☁️ ترحيل البيانات المحلية إلى السحابة
+                    </button>
+                </div>
+                <div id="supabaseLog" style="font-size:12px; font-weight:bold; margin-top:10px; color:#1a5276"></div>
+            </div>
+
+        </div><!-- /settingsTab -->
+
+        <!-- =====================================================
+             تبويب سجل التدقيق
+             ===================================================== -->
+        <div id="auditTab" class="tab-content">
+            <div class="section-title" style="margin-bottom:15px">📋 سجل التدقيق والمراجعة</div>
+            <p style="color:#7f8c8d; font-size:13px; margin-bottom:15px">جميع العمليات التي تمت في النظام مسجلة هنا مع اسم المستخدم والتاريخ.</p>
+            <div style="margin-bottom:10px; display:flex; gap:10px; flex-wrap:wrap">
+                <button class="btn btn-print-all" style="width:auto; padding:10px 20px; margin:0" onclick="printAuditLog()">🖨️ طباعة السجل</button>
+                <button class="btn btn-print-all" style="width:auto; padding:10px 20px; margin:0; background:#27ae60" onclick="exportAuditLogToExcel()">📊 تصدير Excel</button>
+            </div>
+            <div class="table-card" style="overflow-x:auto">
+                <table class="archive-table" style="width:100%">
+                    <thead>
+                        <tr>
+                            <th>التاريخ والوقت</th>
+                            <th>المستخدم</th>
+                            <th>العملية</th>
+                            <th>التفاصيل</th>
+                        </tr>
+                    </thead>
+                    <tbody id="auditLogTableBody">
+                        <tr><td colspan="4" style="text-align:center; color:#95a5a6; padding:30px">جاري التحميل...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div><!-- /auditTab -->
+
+    </div><!-- /container -->
+</div><!-- /appPage -->
+
+<!-- =====================================================
+     منطقة طباعة الخطة الأسبوعية
+     ===================================================== -->
+<div id="printWeeklyArea"></div>
+
+<!-- =====================================================
+     منطقة طباعة الإحصائية الرسمية
+     ===================================================== -->
+<div id="printStatsArea"></div>
+
+<!-- =====================================================
+     منطقة طباعة صفحة المادة
+     ===================================================== -->
+<div id="printMaterialArea"></div>
+
+<!-- =====================================================
+     منطقة طباعة السجل اليومي
+     ===================================================== -->
+<div id="printArea">    <table class="main-table">
+        <thead>
+            <tr>
+                <td colspan="12" style="border:none; padding:0">
+                    <div class="print-header-block">
+                        <h3>سجل العمل المخبري اليومي</h3>
+                        <p>وزارة التربية والتعليم — المملكة الأردنية الهاشمية</p>
+                        <div class="print-meta-row">
+                            <span class="pSchoolDirText">مديرية التربية والتعليم: ................................</span>
+                            <span class="pSchoolNameText">اسم المدرسة: ................................</span>
+                            <span>العام الدراسي: 2025 / 2026</span>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            <tr>
+                <th style="width:11%">اليوم والتاريخ</th>
+                <th style="width:5%">رقم التجربة</th>
+                <th style="width:5%">الحصة</th>
+                <th style="width:8%">الصف والشعبة</th>
+                <th style="width:8%">المبحث</th>
+                <th style="width:10%">معلم المبحث</th>
+                <th style="width:13%">اسم التجربة / النشاط</th>
+                <th style="width:18%">الأدوات والأجهزة والمواد المستخدمة</th>
+                <th style="width:9%">الأدوات والمواد التالفة</th>
+                <th style="width:7%">نتيجة التجربة</th>
+                <th style="width:6%">توقيع معلم المبحث</th>
+                <th style="width:5%">ملاحظات</th>
+            </tr>
+        </thead>
+        <tbody id="printTableBody"></tbody>
+        <tfoot>
+            <tr>
+                <td colspan="12" style="border:none; padding:0">
+                    <div class="print-footer-block">
+                        <div class="signature-row">
+                            <div class="sig-box">
+                                <div>توقيع فني / فنية المختبر</div>
+                                <div class="classLabTechText">الاسم والتوقيع: ................................</div>
+                            </div>
+                            <div class="sig-box">
+                                <div>توقيع مدير / مديرة المدرسة</div>
+                                <div class="classPrincipalText">الاسم والتوقيع والخاتم الرسمي</div>
+                            </div>
+                        </div>
+                        <div class="quality-code">Form # QF70-2-27 Rev.a</div>
+                    </div>
+                </td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<!-- =====================================================
+     منطقة طباعة التقرير الشهري الرسمي
+     ===================================================== -->
+<div id="printMonthlyReportArea">
+    <table id="monthlyOfficialTable">
+        <thead>
+            <tr>
+                <th colspan="9" class="monthly-official-header-cell">
+                    <div class="monthly-header-top-row">
+                        <span>مديرية التربية والتعليم : <span class="pSchoolDirText2">................................</span></span>
+                        <span class="monthly-header-title">التقرير الشهري للعمل المخبري</span>
+                        <span style="visibility:hidden">placeholder</span>
+                    </div>
+                    <div class="monthly-header-sub">
+                        <span>اسم المدرسة : <span class="pSchoolNameText2">................................</span></span>
+                        <span id="pReportMonthName2">التقرير الشهري للنشاط المخبري / شهر :&nbsp;&nbsp;&nbsp;/</span>
+                    </div>
+                </th>
+            </tr>
+            <tr>
+                <th style="width:4%">م</th>
+                <th style="width:16%">اسم المعلم</th>
+                <th style="width:12%">المبحث</th>
+                <th style="width:14%">الصف والشعبة</th>
+                <th style="width:14%">عدد التجارب المطلوب<br>(حسب الخطة)</th>
+                <th style="width:13%">عدد التجارب التي أجريت<br>(حسب سجل العمل)</th>
+                <th style="width:10%">النسبة المئوية<br>للتجارب التي<br>أجريت</th>
+                <th style="width:12%">مجموع التجارب<br>لكل معلم</th>
+                <th style="width:15%">ملاحظات</th>
+            </tr>
+        </thead>
+        <tbody id="printMonthlyTableBody2"></tbody>
+        <tfoot>
+            <tr>
+                <td colspan="9" class="monthly-official-footer-cell">
+                    <div style="text-align:right; font-weight:bold; font-size:11px; margin-bottom:6px; border-top:1px solid #000; padding-top:5px">
+                        مجموع التجارب الكلي التي أجريت خلال الشهر : <span id="pMonthlyTotalFooter">0</span>
+                    </div>
+                    <div class="monthly-footer-notes">
+                        ملاحظات : ..............................................................................................................
+                    </div>
+                    <div class="monthly-footer-sigs">
+                        <div class="monthly-footer-sig-box">
+                            <div>اسم وتوقيع قيم / قيمة المختبر</div>
+                            <div style="margin-top:22px" class="classLabTechText">الاسم والتوقيع: ................................</div>
+                            <div style="font-size:10px; margin-top:4px; text-align:right">التاريخ :&nbsp;&nbsp;/&nbsp;&nbsp;/</div>
+                        </div>
+                        <div class="monthly-footer-sig-box">
+                            <div>توقيع مدير / مديرة المدرسة</div>
+                            <div style="margin-top:22px" class="classPrincipalText">الاسم والتوقيع</div>
+                            <div style="margin-top:8px">والخاتم الرسمي</div>
+                        </div>
+                    </div>
+                    <div class="monthly-footer-totals">
+                        <div>مجموع تجارب الكيمياء = <span id="pSumChem2">0</span></div>
+                        <div>مجموع تجارب الفيزياء = <span id="pSumPhys2">0</span></div>
+                        <div>مجموع تجارب الأحياء = <span id="pSumBio2">0</span></div>
+                        <div>مجموع تجارب العلوم العامة = <span id="pSumGen2">0</span></div>
+                        <div>مجموع تجارب علوم الأرض = <span id="pSumEarth2">0</span></div>
+                    </div>
+                    <div class="monthly-footer-qf">Form # QF70-2-22Rev. b</div>
+                </td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<div id="printAuditLogArea" style="display:none"></div>
+
+<!-- =====================================================
+     ملفات الجافاسكريبت — مرتبة حسب الاعتماديات
+     ===================================================== -->
+<!-- 1. نظام النوافذ المنبثقة (يُحمَّل أولاً لأنه مستقل) -->
+<script src="js/modal.js"></script>
+
+<!-- 2. تكامل Supabase -->
+<script src="js/supabase.js"></script>
+
+<!-- 3. المصادقة والأدوار -->
+<script src="js/auth.js"></script>
+
+<!-- 4. البيانات والتبويبات والتهيئة -->
+<script src="js/data.js"></script>
+
+<!-- 5. السجل والأرشيف -->
+<script src="js/archive.js"></script>
+
+<!-- 6. الطباعة -->
+<script src="js/print.js"></script>
+
+<!-- 7. الإعدادات والمستودع -->
+<script src="js/settings.js"></script>
+
+<!-- 8. سجل اللوازم -->
+<script src="js/supplies.js"></script>
+
+<!-- 9. الإحصائية -->
+<script src="js/stats.js"></script>
+
+<!-- 10. نموذج طلبات المعلمين -->
+<script src="js/requests.js"></script>
+
+<!-- 11. خطة العمل الأسبوعي -->
+<script src="js/weekly.js"></script>
+
+<!-- حاوية الإشعارات المنبثقة -->
+<div id="toastContainer" class="toast-container"></div>
+
+<script>
+if (typeof seedDefaultUsers === 'function') seedDefaultUsers();
+if (typeof selectLoginRole === 'function') selectLoginRole('tech');
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>

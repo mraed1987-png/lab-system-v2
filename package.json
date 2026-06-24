@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "docx": "^9.7.1"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^3.1.0"
+  },
+  "scripts": {
+    "dev": "npx http-server . -p 8080 --cors",
+    "netlify:dev": "netlify dev",
+    "netlify:build": "netlify build",
+    "netlify:deploy": "netlify deploy --prod"
+  }
+}
