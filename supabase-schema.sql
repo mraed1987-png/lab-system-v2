@@ -178,22 +178,15 @@ CREATE POLICY "Allow public all" ON transactions FOR ALL USING (true);
 CREATE POLICY "Allow public all" ON stats_meta FOR ALL USING (true);
 
 -- ============================================================
--- Insert default data
+-- 11. Audit Log (سجل التدقيق) - Optional
 -- ============================================================
-INSERT INTO passwords (role, password) VALUES
-  ('admin', 'admin123'),
-  ('tech', 'lab123'),
-  ('teacher', 'teacher123')
-ON CONFLICT (role) DO NOTHING;
-
-INSERT INTO settings_list (type, value)
-SELECT * FROM (VALUES
-  ('teacher', 'محمد رائد يونس'), ('teacher', 'جهاد'), ('teacher', 'علاء'), ('teacher', 'علي'),
-  ('class', 'الثامن'), ('class', 'التاسع'), ('class', 'العاشر'), ('class', 'الأول الثانوي'), ('class', 'الثاني الثانوي'),
-  ('division', 'أ'), ('division', 'ب'), ('division', 'ج'), ('division', 'د')
-) AS v(type, value)
-WHERE NOT EXISTS (SELECT 1 FROM settings_list LIMIT 1);
-
-INSERT INTO school_meta (dir, name, tech, principal)
-SELECT '', '', '', ''
-WHERE NOT EXISTS (SELECT 1 FROM school_meta LIMIT 1);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  time TIMESTAMPTZ DEFAULT NOW(),
+  user TEXT DEFAULT '',
+  action TEXT DEFAULT '',
+  details TEXT DEFAULT ''
+);
+ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public all" ON audit_log;
+CREATE POLICY "Allow public all" ON audit_log FOR ALL USING (true);
