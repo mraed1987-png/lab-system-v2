@@ -101,16 +101,18 @@ function renderUsersTable() {
     const users = getUsers();
     tbody.innerHTML = '';
     if (users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#95a5a6">لا يوجد مستخدمون — أضف أول مستخدم</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#95a5a6">لا يوجد مستخدمون — أضف أول مستخدم</td></tr>';
         return;
     }
     tbody.innerHTML = users.map((u, i) => {
         const roleLabel = u.role === 'admin' ? '🏫 مدير' : u.role === 'tech' ? '🔬 فني مختبر' : '🧑‍🏫 معلم';
         const canDel = currentRole && currentRole.canDelete;
+        const hasAuth = u.authEmail ? '☁️' : '💾';
         return `<tr>
             <td style="font-weight:bold; text-align:right">${u.name}</td>
             <td>${roleLabel}</td>
             <td style="direction:ltr; text-align:center; font-family:monospace">${u.password}</td>
+            <td style="text-align:center" title="${u.authEmail || 'محلي فقط'}">${hasAuth}</td>
             <td><button class="btn-edit-row" onclick="editUserPassword(${i})" style="background:none; border:none; cursor:pointer; font-size:16px" title="تعديل كلمة المرور">🔑</button></td>
             <td><button class="btn-delete-row" onclick="deleteUser(${i})" style="display:${canDel ? '' : 'none'}">❌</button></td>
         </tr>`;
@@ -125,11 +127,16 @@ async function editUserPassword(index) {
     if (!newPwd) return;
     user.password = newPwd;
     saveUsers(users);
-    // إذا كان الأدمن، حدث كلمة المرور القديمة أيضاً
     if (user.role === 'admin') {
         const passwords = getPasswords();
         passwords.admin = newPwd.trim();
         savePasswords(passwords);
+    }
+    if (supabaseConnected && currentUserName === user.name) {
+        try {
+            const { error } = await supabaseClient.auth.updateUser({ password: newPwd });
+            if (error) console.warn('⚠️ فشل تحديث كلمة مرور Auth:', error.message);
+        } catch (e) {}
     }
     renderUsersTable();
     addAuditLog('🔑 تعديل كلمة مرور', `المستخدم "${user.name}"`);
@@ -145,6 +152,11 @@ function addUser() {
     if (users.some(u => u.name === name)) { alert('هذا الاسم موجود مسبقاً'); return; }
     users.push({ name, role, password });
     saveUsers(users);
+    if (supabaseConnected) {
+        createAuthUser(name, role, password).then(r => {
+            if (r?.error) console.warn('⚠️ لم يتم إنشاء حساب السحابة:', r.error.message);
+        });
+    }
     document.getElementById('newUserName').value = '';
     renderUsersTable();
     updateSupabaseStatus();

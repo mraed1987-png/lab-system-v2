@@ -1,39 +1,20 @@
-// =========================================================
-// نظام الأدوار والمصادقة
-// =========================================================
-
 const ROLES = {
     admin: {
-        label: 'مدير المدرسة',
-        icon: '🏫',
-        badge: 'admin',
+        label: 'مدير المدرسة', icon: '🏫', badge: 'admin',
         tabs: ['archiveTab', 'requestsTab', 'weeklyPlanTab', 'statsTab', 'monthlyReportTab', 'auditTab'],
-        canDelete: false,
-        canEditSettings: false,
-        canSaveRecord: false,
-        canPrint: true,
+        canDelete: false, canEditSettings: false, canSaveRecord: false, canPrint: true,
         defaultPassword: 'admin123'
     },
     tech: {
-        label: 'فني المختبر',
-        icon: '🔬',
-        badge: 'tech',
+        label: 'فني المختبر', icon: '🔬', badge: 'tech',
         tabs: ['formTab', 'archiveTab', 'requestsTab', 'weeklyPlanTab', 'statsTab', 'suppliesTab', 'monthlyReportTab', 'settingsTab', 'auditTab'],
-        canDelete: true,
-        canEditSettings: true,
-        canSaveRecord: true,
-        canPrint: true,
+        canDelete: true, canEditSettings: true, canSaveRecord: true, canPrint: true,
         defaultPassword: 'lab123'
     },
     teacher: {
-        label: 'معلم / معلمة',
-        icon: '👨‍🏫',
-        badge: 'teacher',
+        label: 'معلم / معلمة', icon: '👨‍🏫', badge: 'teacher',
         tabs: ['formTab', 'archiveTab', 'requestsTab', 'weeklyPlanTab'],
-        canDelete: false,
-        canEditSettings: false,
-        canSaveRecord: true,
-        canPrint: false,
+        canDelete: false, canEditSettings: false, canSaveRecord: true, canPrint: false,
         defaultPassword: 'teacher123'
     }
 };
@@ -42,27 +23,18 @@ let currentRole = null;
 let currentRoleKey = null;
 let currentUserName = '';
 
-// كلمات المرور المخزنة (قابلة للتعديل من الإعدادات)
 function getPasswords() {
     return JSON.parse(localStorage.getItem('cfg_passwords')) || {
-        admin: 'admin123',
-        tech: 'lab123',
-        teacher: 'teacher123'
+        admin: 'admin123', tech: 'lab123', teacher: 'teacher123'
     };
 }
-
 function savePasswords(passwords) {
     localStorage.setItem('cfg_passwords', JSON.stringify(passwords));
 }
 
-// =========================================================
-// إدارة المستخدمين (معلمين وفنيين بأسماء وكلمات مرور فردية)
-// =========================================================
-
 function getUsers() {
     return JSON.parse(localStorage.getItem('cfg_users')) || [];
 }
-
 function saveUsers(users) {
     localStorage.setItem('cfg_users', JSON.stringify(users));
 }
@@ -75,13 +47,65 @@ function seedDefaultUsers() {
     teachers.forEach(t => users.push({ name: t, role: 'teacher', password: '1234' }));
     users.push({ name: document.getElementById('cfgLabTech')?.value || 'فني مختبر', role: 'tech', password: '1234' });
     saveUsers(users);
-    // Sync admin password back to legacy system
     savePasswords({ admin: passwords.admin, tech: 'lab123', teacher: 'teacher123' });
 }
 
-// =========================================================
-// تسجيل الدخول والخروج
-// =========================================================
+// ---- Supabase Auth helpers ----
+
+function nameToEmail(role, name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = ((hash << 5) - hash) + name.charCodeAt(i);
+        hash |= 0;
+    }
+    return `${role}-${Math.abs(hash).toString(36)}@lab.app`;
+}
+
+function getUserEmail(user) {
+    return user.authEmail || nameToEmail(user.role, user.name);
+}
+
+async function createAuthUser(displayName, role, password) {
+    if (!supabaseConnected || !supabaseClient) return { error: new Error('السحابة غير متصلة') };
+    const email = nameToEmail(role, displayName);
+    const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: { data: { role, display_name: displayName } }
+    });
+    if (error && error.message?.includes('already')) return { data: null, error: null, exists: true };
+    if (data?.user) {
+        const users = getUsers();
+        const u = users.find(x => x.name === displayName && x.role === role);
+        if (u) { u.authEmail = email; saveUsers(users); }
+    }
+    return { data, error };
+}
+
+async function migrateAllUsersToAuth() {
+    if (!supabaseConnected) { alert('⚠️ السحابة غير متصلة — تأكد من ضبط مفاتيح Supabase'); return; }
+    if (!await showConfirm('🚀 ترحيل كل المستخدمين إلى نظام الدخول الآمن؟\n\nسيتم إنشاء حسابات دخول سحابية لكافة المستخدمين بنفس كلمات المرور.')) return;
+    const users = getUsers();
+    let ok = 0, fail = 0;
+    for (const u of users) {
+        const email = nameToEmail(u.role, u.name);
+        const { error } = await supabaseClient.auth.signUp({
+            email,
+            password: u.password,
+            options: { data: { role: u.role, display_name: u.name } }
+        });
+        if (error && !error.message?.includes('already')) { fail++; console.warn('فشل ترحيل', u.name, error); }
+        else {
+            u.authEmail = email;
+            ok++;
+        }
+    }
+    saveUsers(users);
+    alert(`✅ تم ترحيل ${ok} مستخدم بنجاح${fail ? `، فشل ${fail}` : ''}`);
+    renderUsersTable();
+}
+
+// ---- Login / Logout ----
 
 let selectedLoginRole = 'tech';
 
@@ -90,7 +114,6 @@ function selectLoginRole(role) {
     document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
     document.querySelector(`.role-btn[data-role="${role}"]`).classList.add('active');
     document.getElementById('loginError').style.display = 'none';
-
     const userGroup = document.getElementById('loginUserGroup');
     const userSel = document.getElementById('loginUserSelect');
     const pwdLabel = document.getElementById('loginPasswordLabel');
@@ -105,23 +128,47 @@ function selectLoginRole(role) {
             const users = getUsers().filter(u => u.role === role);
             users.forEach(u => userSel.appendChild(new Option(u.name, u.name)));
             if (cur && users.some(u => u.name === cur)) userSel.value = cur;
-            if (users.length === 0) userSel.innerHTML += '<option value="" disabled>⚠️ لا يوجد مستخدمين — أضفهم من الإعدادات</option>';
+            if (users.length === 0) userSel.innerHTML += '<option value="" disabled>⚠️ لا يوجد مستخدمين</option>';
         }
         if (pwdLabel) pwdLabel.innerText = 'كلمة المرور الفردية';
     }
 }
 
-function doLogin() {
+async function doLogin() {
     const role = selectedLoginRole;
+    let userName = '';
+    let password = document.getElementById('loginPassword').value;
 
     if (role !== 'admin') {
-        const userName = document.getElementById('loginUserSelect').value;
-        const password = document.getElementById('loginPassword').value;
-
+        userName = document.getElementById('loginUserSelect').value;
         if (!userName) { showLoginError('اختر اسمك من القائمة'); return; }
-        if (!password) { showLoginError('الرجاء إدخال كلمة المرور الفردية'); return; }
+        if (!password) { showLoginError('الرجاء إدخال كلمة المرور'); return; }
+    } else {
+        userName = 'مدير المدرسة';
+        if (!password) { showLoginError('الرجاء إدخال كلمة المرور'); return; }
+    }
 
+    // 1) Try Supabase Auth
+    if (supabaseConnected && supabaseClient) {
         const users = getUsers();
+        const user = users.find(u => u.name === userName && u.role === role);
+        const email = user ? getUserEmail(user) : nameToEmail(role, userName);
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (data?.user) {
+            const meta = data.user.user_metadata || {};
+            currentRoleKey = meta.role || role;
+            currentRole = ROLES[currentRoleKey];
+            currentUserName = meta.display_name || userName;
+            return finishLogin();
+        }
+        if (error && !error.message?.includes('Invalid login')) {
+            console.warn('⚠️ Auth error:', error.message);
+        }
+    }
+
+    // 2) Fallback: local password check
+    const users = getUsers();
+    if (role !== 'admin') {
         const user = users.find(u => u.name === userName && u.role === role);
         if (!user || user.password !== password) {
             showLoginError('اسم المستخدم أو كلمة المرور غير صحيحة');
@@ -131,10 +178,8 @@ function doLogin() {
         }
         currentUserName = userName;
     } else {
-        const password = document.getElementById('loginPassword').value;
-        if (!password) { showLoginError('الرجاء إدخال كلمة المرور'); return; }
-        const adminUser = getUsers().find(u => u.role === 'admin');
-        const validPwd = adminUser ? adminUser.password : (getPasswords()).admin;
+        const adminUser = users.find(u => u.role === 'admin');
+        const validPwd = adminUser ? adminUser.password : getPasswords().admin;
         if (password !== validPwd) {
             showLoginError('كلمة المرور غير صحيحة');
             document.getElementById('loginPassword').value = '';
@@ -147,15 +192,24 @@ function doLogin() {
     currentRoleKey = role;
     currentRole = ROLES[role];
 
+    if (supabaseConnected) {
+        setTimeout(() => {
+            const hint = document.getElementById('migrationHint');
+            if (hint) hint.style.display = 'block';
+        }, 2000);
+    }
+
+    finishLogin();
+}
+
+function finishLogin() {
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('appPage').style.display = 'block';
-
     updateSupabaseStatus();
     seedDefaultUsers();
-
     const renderAll = () => {
         applyRolePermissions();
-        initSystemConfiguration(); // already calls: renderSettingsTables, renderStoreExperiments, renderSavedTargetsTable, renderPasswordSettings, renderUsersTable, initRequestsForm, renderRequestsTable, updateRequestsCount
+        initSystemConfiguration();
         loadSchoolMeta();
         loadStatsMeta();
         renderArchive();
@@ -164,22 +218,10 @@ function doLogin() {
         generateWeeklyPlan();
         if (typeof renderMaterialsTable === 'function') renderMaterialsTable();
     };
-
-    const hideLoadingOverlay = () => {
-        const el = document.getElementById('loadingOverlay');
-        if (el) el.style.display = 'none';
-    };
-
-    const showLoadingOverlay = () => {
-        const el = document.getElementById('loadingOverlay');
-        if (el) el.style.display = 'flex';
-    };
-
+    const hideLoadingOverlay = () => { const el = document.getElementById('loadingOverlay'); if (el) el.style.display = 'none'; };
     const waitForSupabase = (maxMs = 2000) => new Promise(resolve => {
         if (supabaseConnected) { resolve(true); return; }
-        if (typeof supabaseConnectionAttempted !== 'undefined' && supabaseConnectionAttempted) {
-            resolve(false); return;
-        }
+        if (typeof supabaseConnectionAttempted !== 'undefined' && supabaseConnectionAttempted) { resolve(false); return; }
         const started = Date.now();
         const tick = () => {
             if (supabaseConnected) { resolve(true); return; }
@@ -188,37 +230,32 @@ function doLogin() {
         };
         tick();
     });
-
     const loadWithTimeout = (ms = 6000) => Promise.race([
         loadAllFromSupabase(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('cloud_timeout')), ms))
     ]);
-
     const loadData = async () => {
-        // أولاً: اعرض الواجهة فوراً بالبيانات المحلية (بدون انتظار السحابة)
         hideLoadingOverlay();
         renderAll();
-
-        // ثانياً: في الخلفية، حاول تحميل من السحابة
         const hasCloudConfig = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
         if (!hasCloudConfig) return;
-
         try {
             const connected = supabaseConnected || await waitForSupabase();
             if (connected) {
                 await loadWithTimeout();
-                // أعِد الرسم بعد تحميل بيانات السحابة
                 renderAll();
             }
         } catch (e) {
-            console.warn('☁️ Supabase: فشل التحميل الخلفي — استمرار بالبيانات المحلية', e);
+            console.warn('☁️ Supabase: فشل التحميل الخلفي', e);
         }
     };
-
     loadData();
 }
 
-function doLogout() {
+async function doLogout() {
+    if (supabaseConnected && supabaseClient) {
+        try { await supabaseClient.auth.signOut(); } catch (e) {}
+    }
     currentRole = null;
     currentRoleKey = null;
     currentUserName = '';
@@ -234,18 +271,11 @@ function showLoginError(msg) {
     el.style.display = 'block';
 }
 
-// =========================================================
-// تطبيق صلاحيات الدور
-// =========================================================
-
 function applyRolePermissions() {
-    // تحديث شريط المستخدم
     document.getElementById('topBarUserName').textContent = currentUserName || currentRole.label;
     const badge = document.getElementById('topBarRoleBadge');
     badge.textContent = currentRole.label;
     badge.className = `role-badge ${currentRoleKey}`;
-
-    // إخفاء / إظهار التبويبات
     document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
         const tab = btn.getAttribute('data-tab');
         if (currentRole.tabs.includes(tab)) {
@@ -256,49 +286,25 @@ function applyRolePermissions() {
             btn.style.display = 'none';
         }
     });
-
-    // إخفاء المجموعة إذا كل أزرارها مخفية
     document.querySelectorAll('.tab-group').forEach(group => {
         const visibleTabs = group.querySelectorAll('.tab-btn:not(.restricted)');
-        const groupBtn = group.querySelector('.tab-group-btn');
-        if (visibleTabs.length === 0) {
-            group.style.display = 'none';
-        } else {
-            group.style.display = '';
-        }
+        if (visibleTabs.length === 0) group.style.display = 'none';
+        else group.style.display = '';
     });
-
-    // فتح أول مجموعة وأول تبويب مسموح
     const firstAllowed = currentRole.tabs[0];
     openGroupForTab(firstAllowed);
     switchTabById(firstAllowed);
-
-    // أزرار الحذف
     document.querySelectorAll('.btn-delete-row').forEach(b => {
         b.style.display = currentRole.canDelete ? '' : 'none';
     });
-
-    // زر الحفظ في النموذج
     const btnSave = document.getElementById('btnSaveRecord');
-    if (btnSave) {
-        btnSave.style.display = currentRole.canSaveRecord ? '' : 'none';
-    }
-
-    // أزرار الطباعة
+    if (btnSave) btnSave.style.display = currentRole.canSaveRecord ? '' : 'none';
     document.querySelectorAll('.btn-print-all').forEach(b => {
         b.style.display = currentRole.canPrint ? '' : 'none';
     });
-
-    // إعدادات النظام — إخفاء أقسام التعديل لغير الفني
-    const settingsEditSections = document.querySelectorAll('.settings-edit-only');
-    settingsEditSections.forEach(el => {
+    document.querySelectorAll('.settings-edit-only').forEach(el => {
         el.style.display = currentRole.canEditSettings ? '' : 'none';
     });
-
-    // لافتة المدير في الأرشيف
     const adminBanner = document.getElementById('adminViewBanner');
-    if (adminBanner) {
-        adminBanner.style.display = (currentRoleKey === 'admin') ? 'flex' : 'none';
-    }
+    if (adminBanner) adminBanner.style.display = (currentRoleKey === 'admin') ? 'flex' : 'none';
 }
-
