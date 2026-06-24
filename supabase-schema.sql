@@ -183,7 +183,7 @@ CREATE POLICY "Allow public all" ON stats_meta FOR ALL USING (true);
 CREATE TABLE IF NOT EXISTS audit_log (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   time TIMESTAMPTZ DEFAULT NOW(),
-  user TEXT DEFAULT '',
+  "user" TEXT DEFAULT '',
   action TEXT DEFAULT '',
   details TEXT DEFAULT ''
 );
